@@ -7,14 +7,23 @@ import (
 	"path/filepath"
 )
 
-const name = "Cloudflare WARP Applet"
-const perm = 0o644
+const (
+	name    = "Cloudflare WARP Applet"
+	dirPerm = 0o775
+	perm    = 0o644
+)
 
 var (
-	home          = os.Getenv("HOME")
-	iconPath      = filepath.Join(home, ".local", "share", "icons", "warp-applet.png")
-	launcherPath  = filepath.Join(home, ".local", "share", "applications", "warp-applet.desktop")
-	autostartPath = filepath.Join(home, ".config", "autostart", "warp-applet.desktop")
+	home = os.Getenv("HOME")
+
+	iconDir  = filepath.Join(home, ".local", "share", "icons")
+	iconPath = filepath.Join(iconDir, "warp-applet.png")
+
+	launcherDir  = filepath.Join(home, ".local", "share", "applications")
+	launcherPath = filepath.Join(launcherDir, "warp-applet.desktop")
+
+	autostartDir  = filepath.Join(home, ".config", "autostart")
+	autostartPath = filepath.Join(autostartDir, "warp-applet.desktop")
 )
 
 // Create creates launcher file.
@@ -27,11 +36,17 @@ Exec=%s
 Icon=%s
 `, name, execPath, iconPath)
 
+	if err := os.MkdirAll(launcherDir, dirPerm); err != nil && !os.IsExist(err) {
+		return fmt.Errorf("could not mkdir %q: %v", launcherDir, err)
+	}
 	if err := os.WriteFile(launcherPath, buf.Bytes(), perm); err != nil {
 		return fmt.Errorf("could not create launcher file %q: %v", launcherPath, err)
 	}
 	fmt.Printf("Launcher file is created: %q\n", launcherPath)
 
+	if err := os.MkdirAll(iconDir, dirPerm); err != nil && !os.IsExist(err) {
+		return fmt.Errorf("could not mkdir %q: %v", iconDir, err)
+	}
 	if err := os.WriteFile(iconPath, iconData, perm); err != nil {
 		return fmt.Errorf("could not create launcher icon file %q: %v", launcherPath, err)
 	}
@@ -50,6 +65,9 @@ Exec=%s
 X-GNOME-Autostart-enabled=true
 `, name, execPath)
 
+	if err := os.MkdirAll(autostartDir, dirPerm); err != nil && !os.IsExist(err) {
+		return fmt.Errorf("could not mkdir %q: %v", autostartDir, err)
+	}
 	if err := os.WriteFile(autostartPath, buf.Bytes(), perm); err != nil {
 		return fmt.Errorf("could not create autostart file %q: %v", autostartPath, err)
 	}
