@@ -77,34 +77,24 @@ X-GNOME-Autostart-enabled=true
 }
 
 // Cleanup completely removes all created files.
-func Cleanup(lockFilePath string) {
-	const n = 4
-	msgs := [n]string{
+func Cleanup() {
+	msgs := [...]string{
 		fmt.Sprintf("Launcher file is removed: %q\n", launcherPath),
 		fmt.Sprintf("Launcher's icon file is removed: %q\n", iconPath),
 		fmt.Sprintf("Autostart file is removed: %q\n", autostartPath),
-		fmt.Sprintf("Lock file is removed: %q\n", lockFilePath),
 	}
 
-	var errs [n]error
 	if err := os.Remove(launcherPath); err != nil && !os.IsNotExist(err) {
-		errs[0] = fmt.Errorf("could not remove launcher file %q: %v\n", launcherPath, err)
+		msgs[0] = fmt.Sprintf("could not remove launcher file %q: %v\n", launcherPath, err)
 	}
 	if err := os.Remove(iconPath); err != nil && !os.IsNotExist(err) {
-		errs[1] = fmt.Errorf("could not remove launcher's icon file %q: %v\n", iconPath, err)
+		msgs[1] = fmt.Sprintf("could not remove launcher's icon file %q: %v\n", iconPath, err)
 	}
 	if err := os.Remove(autostartPath); err != nil && !os.IsNotExist(err) {
-		errs[2] = fmt.Errorf("could not remove autostart file %q: %v\n", autostartPath, err)
-	}
-	if err := os.Remove(lockFilePath); err != nil && !os.IsNotExist(err) {
-		errs[3] = fmt.Errorf("could not remove lock file %q: %v\n", lockFilePath, err)
+		msgs[2] = fmt.Sprintf("could not remove autostart file %q: %v\n", autostartPath, err)
 	}
 
-	for i := range errs {
-		if errs[i] == nil {
-			fmt.Print(msgs[i])
-		} else {
-			fmt.Print(errs[i])
-		}
+	for i := range msgs {
+		fmt.Print(msgs[i])
 	}
 }

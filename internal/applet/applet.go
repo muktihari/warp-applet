@@ -10,9 +10,23 @@ import (
 	"unicode"
 
 	"github.com/getlantern/systray"
+	"github.com/muktihari/warp-applet/internal/icon"
 )
 
-const bin = "warp-cli"
+const (
+	bin      = "warp-cli"
+	lockPath = "/tmp/warp-applet.lock"
+)
+
+// ForceUnlock allow us to forcely removes lock file in a case where we have a broken state.
+// When run normally, Applet will always remove lock file on exit.
+func ForceUnlock() {
+	if err := os.Remove(lockPath); err != nil && !os.IsNotExist(err) {
+		fmt.Printf("could not remove lock file %q: %v\n", lockPath, err)
+		return
+	}
+	fmt.Printf("Lock file is removed: %q\n", lockPath)
+}
 
 type status string
 
@@ -59,29 +73,12 @@ func (m mode) cmdArg() string {
 }
 
 // New creates new applet.
-func New(lockFilePath string, connectedIcon, disconnectedIcon, unknownStateIcon []byte) *Applet {
-	a := new(Applet)
-	a.lock.path = lockFilePath
-	a.icon.connected = connectedIcon
-	a.icon.disconnected = disconnectedIcon
-	a.icon.unknownState = unknownStateIcon
-	return a
-}
+func New() *Applet { return new(Applet) }
 
 // Applet is a fontend for warp-cli (Cloudflare WARP).
 type Applet struct {
 	buf  bytes.Buffer
-	lock struct { // Enable singleton app
-		path string
-		file *os.File
-	}
-
-	icon struct {
-		connected    []byte
-		disconnected []byte
-		unknownState []byte
-	}
-
+	lock *os.File // Enable singleton app
 	menu struct {
 		status     *systray.MenuItem
 		connect    *systray.MenuItem
@@ -97,12 +94,12 @@ type Applet struct {
 // to run so we don't prevent users from running the applet at all.
 func (a *Applet) Launch() {
 	var err error
-	if a.lock.file, err = os.OpenFile(a.lock.path, os.O_CREATE|os.O_EXCL, 0o644); err != nil {
+	if a.lock, err = os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL, 0o600); err != nil {
 		if os.IsExist(err) {
-			fmt.Printf("%s is already running, lock file exists: %q\n", bin, a.lock.path)
+			fmt.Printf("warp-applet is already running, lock file exists: %q\n", lockPath)
 			return
 		}
-		fmt.Printf("%s is running but without lock, creating lock file failed: %v\n", bin, err)
+		fmt.Printf("warp-applet is running but without lock, creating lock file failed: %v\n", err)
 	}
 	systray.Run(a.onReady, a.onExit)
 }
@@ -112,7 +109,7 @@ func (a *Applet) Quit() { systray.Quit() }
 
 func (a *Applet) onReady() {
 	systray.SetTooltip("Cloudflare WARP Applet")
-	systray.SetIcon(a.icon.disconnected)
+	systray.SetIcon(icon.Disconnected)
 
 	a.menu.status = systray.AddMenuItem("Initializing...", "")
 
@@ -183,13 +180,13 @@ loop:
 
 func (a *Applet) onExit() {
 	a.disconnect()
-	if a.lock.file == nil {
+	if a.lock == nil {
 		return
 	}
-	a.lock.file.Close()
-	a.lock.file = nil
-	if err := os.Remove(a.lock.path); err != nil && !os.IsNotExist(err) {
-		fmt.Printf("could not remove lock file %q: %v\n", a.lock.path, err)
+	a.lock.Close()
+	a.lock = nil
+	if err := os.Remove(lockPath); err != nil && !os.IsNotExist(err) {
+		fmt.Printf("could not remove lock file %q: %v\n", lockPath, err)
 		return
 	}
 }
@@ -199,7 +196,7 @@ func (a *Applet) connect() {
 	cmd := exec.Command(bin, "connect")
 	cmd.Stderr = &a.buf
 	if err := cmd.Run(); err != nil {
-		a.showError(a.buf.Bytes(), err)
+		a.showError(a.buf.Bytes(), err.Error())
 		return
 	}
 	a.mustUpdateStatus()
@@ -210,7 +207,7 @@ func (a *Applet) disconnect() {
 	cmd := exec.Command(bin, "disconnect")
 	cmd.Stderr = &a.buf
 	if err := cmd.Run(); err != nil {
-		a.showError(a.buf.Bytes(), err)
+		a.showError(a.buf.Bytes(), err.Error())
 		return
 	}
 	a.mustUpdateStatus()
@@ -225,7 +222,7 @@ func (a *Applet) changeMode(mode mode) {
 	cmd := exec.Command(bin, "mode", mode.cmdArg())
 	cmd.Stderr = &a.buf
 	if err := cmd.Run(); err != nil {
-		a.showError(a.buf.Bytes(), err)
+		a.showError(a.buf.Bytes(), err.Error())
 		return
 	}
 }
@@ -261,7 +258,7 @@ func (a *Applet) updateStatus() status {
 	cmd.Stderr = &a.buf
 	cmd.Stdout = &a.buf
 	if err := cmd.Run(); err != nil {
-		a.showError(a.buf.Bytes(), err)
+		a.showError(a.buf.Bytes(), err.Error())
 		return statusUnknown
 	}
 
@@ -277,23 +274,23 @@ func (a *Applet) updateStatus() status {
 		a.menu.status.SetTitle("Connected!")
 		a.menu.connect.Hide()
 		a.menu.disconnect.Show()
-		systray.SetIcon(a.icon.connected)
+		systray.SetIcon(icon.Connected)
 		return statusConnected
 	case bytes.Contains(output, []byte(statusDisconnected)):
 		a.menu.status.SetTitle("Disconnected!")
 		a.menu.disconnect.Hide()
 		a.menu.connect.Show()
-		systray.SetIcon(a.icon.disconnected)
+		systray.SetIcon(icon.Disconnected)
 		return statusDisconnected
 	case bytes.Contains(output, []byte(statusNoNetwork)):
 		a.menu.status.SetTitle("No Network")
 		a.menu.disconnect.Hide()
 		a.menu.connect.Show()
-		systray.SetIcon(a.icon.disconnected)
+		systray.SetIcon(icon.Disconnected)
 		return statusNoNetwork
 	default:
-		systray.SetIcon(a.icon.unknownState)
-		a.showError(output, fmt.Errorf("Status: %s", statusUnknown))
+		systray.SetIcon(icon.UnknownState)
+		a.showError(output, fmt.Sprintf("Status: %s", statusUnknown))
 		return statusUnknown
 	}
 }
@@ -304,7 +301,7 @@ func (a *Applet) updateModeFromSettings() {
 	cmd.Stdout = &a.buf
 	cmd.Stderr = &a.buf
 	if err := cmd.Run(); err != nil {
-		a.showError(a.buf.Bytes(), err)
+		a.showError(a.buf.Bytes(), err.Error())
 		return
 	}
 
@@ -330,7 +327,7 @@ func (a *Applet) updateModeFromSettings() {
 	}
 }
 
-func (a *Applet) showError(msg []byte, err error) {
+func (a *Applet) showError(msg []byte, err string) {
 	s := fmt.Sprintf("ERROR!\n%s\n%v", msg, err)
 	a.menu.status.SetTitle(s)
 }
