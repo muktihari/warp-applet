@@ -15,8 +15,6 @@ import (
 	"github.com/muktihari/warp-applet/internal/launcher"
 )
 
-const lockFilePath = "/tmp/warp-applet.lock"
-
 func main() {
 	var (
 		createLauncher = flag.Bool("create-launcher", false, "create launcher")
@@ -46,13 +44,14 @@ func main() {
 			}
 		}
 	case *cleanup:
-		launcher.Cleanup(lockFilePath)
+		launcher.Cleanup()
+		applet.ForceUnlock()
 	default:
-		// Launch if not flags specified
+		// Launch if no flags specified
 		quitSignal := make(chan os.Signal, 1)
 		signal.Notify(quitSignal, os.Interrupt, syscall.SIGTERM)
 
-		a := applet.New(lockFilePath, icon.Connected, icon.Disconnected, icon.UnknownState)
+		a := applet.New()
 
 		go func() {
 			<-quitSignal
