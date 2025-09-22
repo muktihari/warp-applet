@@ -9,7 +9,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/getlantern/systray"
+	"fyne.io/systray"
 	"github.com/muktihari/warp-applet/internal/icon"
 )
 
@@ -167,15 +167,7 @@ func (a *Applet) onReady() {
 
 	a.updateModeFromSettings()
 	// On startup, the computer may take a while to connect to Wi-Fi.
-loop:
-	for {
-		switch a.updateStatus() {
-		case statusConnecting, statusDisconnecting, statusNoNetwork:
-			time.Sleep(time.Second)
-		default:
-			break loop
-		}
-	}
+	a.mustUpdateStatus()
 }
 
 func (a *Applet) onExit() {
@@ -229,26 +221,30 @@ func (a *Applet) changeMode(mode mode) {
 
 func (a *Applet) refresh() {
 	a.updateModeFromSettings()
-	a.mustUpdateStatus()
+	a.updateStatus()
 }
 
-// mustUpdateStatusExpect checks status on loop with interval. It only returns
+// mustUpdateStatusExpect checks status on loop with back-off. It only returns
 // when it gets status statusConnected, statusDisconnected or statusUnknown.
+// And it returns when a certain amount of time has elapsed when waiting for Network.
 func (a *Applet) mustUpdateStatus() {
-	const add = 100 * time.Millisecond
-	const max = 2 * time.Second
-	dur := 200 * time.Millisecond
-	time.Sleep(dur) // The update is not immediate, let's wait for a moment first.
+	const add = 200 * time.Millisecond
+	const max = 10 * time.Second
+	var dur time.Duration
 	for {
+		// The update is not immediate, let's wait for a moment first.
+		dur = min(dur+add, max)
+		time.Sleep(dur)
 		switch a.updateStatus() {
 		case statusConnected, statusDisconnected, statusUnknown:
 			return
+		case statusNoNetwork:
+			if dur == max {
+				// We have burned CPU cycles for at least 4m at this point.
+				// Let's stop and make user refresh manually.
+				return
+			}
 		}
-		if dur < max {
-			dur += add
-		}
-		time.Sleep(dur)
-		continue
 	}
 }
 
