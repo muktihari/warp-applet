@@ -48,6 +48,8 @@ warp-applet -autostart
 
 ## Troubleshooting
 
+If this applet doesn't show on GNOME's panel, please make sure that AppIndicator is installed/enabled. Installing this gnome-extension works for me on Fedora: https://extensions.gnome.org/extension/615/appindicator-support
+
 If this applet is unexpectedly crashed (e.g. force killed) and is in broken state (e.g. can't run the applet due to dangling lock file), please run this following command, this will completely remove all files created by the applet such as launcher, autostart and lock file (you'll need to recreate the launcher and the autostart file again):
 
 ```sh
