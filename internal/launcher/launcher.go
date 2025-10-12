@@ -1,10 +1,12 @@
 package launcher
 
 import (
-	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/muktihari/warp-applet/internal/icon"
 )
 
 const (
@@ -26,75 +28,107 @@ var (
 	autostartPath = filepath.Join(autostartDir, "warp-applet.desktop")
 )
 
-// Create creates launcher file.
-func Create(execPath string, iconData []byte) error {
-	var buf bytes.Buffer
-	fmt.Fprintf(&buf, `[Desktop Entry]
-Name=%s
-Type=Application
-Exec=%s
-Icon=%s
-`, name, execPath, iconPath)
+type Launcher struct {
+	buf      []byte
+	execPath string
+}
 
+// New creates new launcher instance.
+func New(execPath string) *Launcher {
+	return &Launcher{
+		buf:      make([]byte, 0, 512),
+		execPath: execPath,
+	}
+}
+
+// CreateLauncher creates launcher file.
+func (l *Launcher) CreateLauncher() error {
 	if err := os.MkdirAll(launcherDir, dirPerm); err != nil && !os.IsExist(err) {
 		return fmt.Errorf("could not mkdir %q: %v", launcherDir, err)
 	}
-	if err := os.WriteFile(launcherPath, buf.Bytes(), perm); err != nil {
+	b := fmt.Appendf(l.buf[:0], "[Desktop Entry]\nName=%s\nType=Application\nExec=%s\nIcon=%s\n", name, l.execPath, iconPath)
+	if err := os.WriteFile(launcherPath, b, perm); err != nil {
 		return fmt.Errorf("could not create launcher file %q: %v", launcherPath, err)
 	}
-	fmt.Printf("Launcher file is created: %q\n", launcherPath)
-
 	if err := os.MkdirAll(iconDir, dirPerm); err != nil && !os.IsExist(err) {
 		return fmt.Errorf("could not mkdir %q: %v", iconDir, err)
 	}
-	if err := os.WriteFile(iconPath, iconData, perm); err != nil {
+	if err := os.WriteFile(iconPath, icon.Connected, perm); err != nil {
 		return fmt.Errorf("could not create launcher icon file %q: %v", launcherPath, err)
 	}
-	fmt.Printf("Launcher's icon file is created: %q\n", iconPath)
-
 	return nil
 }
 
-// Autostart creates autostart file.
-func Autostart(execPath string) error {
-	var buf bytes.Buffer
-	fmt.Fprintf(&buf, `[Desktop Entry]
-Name=%s
-Type=Application
-Exec=%s
-X-GNOME-Autostart-enabled=true
-`, name, execPath)
+func (l *Launcher) RemoveLauncher() error {
+	if err := os.Remove(launcherPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("could not remove launcher file %q: %v\n", launcherPath, err)
+	}
+	if err := os.Remove(iconPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("could not remove launcher's icon file %q: %v\n", iconPath, err)
+	}
+	return nil
+}
 
+func (l *Launcher) IsLauncherExist() bool {
+	_, err := os.Stat(launcherPath)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			fmt.Printf("check if exist: %s: %v\n", launcherPath, err)
+		}
+		return false
+	}
+	return true
+}
+
+// CreateAutostartAtLogin creates autostart file.
+func (l *Launcher) CreateAutostartAtLogin() error {
 	if err := os.MkdirAll(autostartDir, dirPerm); err != nil && !os.IsExist(err) {
 		return fmt.Errorf("could not mkdir %q: %v", autostartDir, err)
 	}
-	if err := os.WriteFile(autostartPath, buf.Bytes(), perm); err != nil {
+	b := fmt.Appendf(l.buf[:0], "[Desktop Entry]\nName=%s\nType=Application\nExec=%s\n", name, l.execPath)
+	if err := os.WriteFile(autostartPath, b, perm); err != nil {
 		return fmt.Errorf("could not create autostart file %q: %v", autostartPath, err)
 	}
-	fmt.Printf("Autostart file is created: %q\n", autostartPath)
-
 	return nil
+}
+
+func (l *Launcher) RemoveAutostartAtLogin() error {
+	if err := os.Remove(autostartPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("could not remove autostart file %q: %v\n", autostartPath, err)
+	}
+	return nil
+}
+
+func (l *Launcher) IsAutostartExist() bool {
+	_, err := os.Stat(autostartPath)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			fmt.Printf("check if exist: %s: %v\n", autostartPath, err)
+		}
+		return false
+	}
+	return true
 }
 
 // Cleanup completely removes all created files.
 func Cleanup() {
 	msgs := [...]string{
-		fmt.Sprintf("Launcher file is removed: %q\n", launcherPath),
-		fmt.Sprintf("Launcher's icon file is removed: %q\n", iconPath),
-		fmt.Sprintf("Autostart file is removed: %q\n", autostartPath),
+		fmt.Sprintf("Launcher file is removed: %q", launcherPath),
+		fmt.Sprintf("Launcher's icon file is removed: %q", iconPath),
+		fmt.Sprintf("Autostart file is removed: %q", autostartPath),
 	}
 
 	if err := os.Remove(launcherPath); err != nil && !os.IsNotExist(err) {
-		msgs[0] = fmt.Sprintf("could not remove launcher file %q: %v\n", launcherPath, err)
+		msgs[0] = fmt.Sprintf("could not remove launcher file %q: %v", launcherPath, err)
 	}
 	if err := os.Remove(iconPath); err != nil && !os.IsNotExist(err) {
-		msgs[1] = fmt.Sprintf("could not remove launcher's icon file %q: %v\n", iconPath, err)
+		msgs[1] = fmt.Sprintf("could not remove launcher's icon file %q: %v", iconPath, err)
 	}
 	if err := os.Remove(autostartPath); err != nil && !os.IsNotExist(err) {
-		msgs[2] = fmt.Sprintf("could not remove autostart file %q: %v\n", autostartPath, err)
+		msgs[2] = fmt.Sprintf("could not remove autostart file %q: %v", autostartPath, err)
 	}
 
 	for i := range msgs {
-		fmt.Print(msgs[i])
+		fmt.Println(msgs[i])
 	}
 }
