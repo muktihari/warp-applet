@@ -11,6 +11,7 @@ import (
 
 	"fyne.io/systray"
 	"github.com/muktihari/warp-applet/internal/icon"
+	"github.com/muktihari/warp-applet/internal/launcher"
 )
 
 const (
@@ -73,7 +74,11 @@ func (m mode) cmdArg() string {
 }
 
 // New creates new applet.
-func New() *Applet { return new(Applet) }
+func New(l *launcher.Launcher) *Applet {
+	return &Applet{
+		launcher: l,
+	}
+}
 
 // Applet is a fontend for warp-cli (Cloudflare WARP).
 type Applet struct {
@@ -84,9 +89,11 @@ type Applet struct {
 		connect    *systray.MenuItem
 		disconnect *systray.MenuItem
 		mode       modeMenu
+		settings   settingsMenu
 		refresh    *systray.MenuItem
 		quit       *systray.MenuItem
 	}
+	launcher *launcher.Launcher
 }
 
 // Launch launchs the applet. Only one instance of applet can run (singleton) as a guard for users from
@@ -127,6 +134,10 @@ func (a *Applet) onReady() {
 	a.menu.mode.proxy = a.menu.mode.AddSubMenuItemCheckbox("  Proxy", "", false)
 	a.menu.mode.tunnelOnly = a.menu.mode.AddSubMenuItemCheckbox("  Tunnel Only", "", false)
 
+	a.menu.settings.MenuItem = systray.AddMenuItem("Settings", "")
+	a.menu.settings.ShowInApps = a.menu.settings.AddSubMenuItemCheckbox("  Show in Apps", "", false)
+	a.menu.settings.AutostartAtLogin = a.menu.settings.AddSubMenuItemCheckbox("  Autostart at Login", "", false)
+
 	a.menu.refresh = systray.AddMenuItem("Refresh", "")
 	a.menu.quit = systray.AddMenuItem("Quit", "")
 
@@ -140,8 +151,6 @@ func (a *Applet) onReady() {
 				a.connect()
 			case <-a.menu.disconnect.ClickedCh:
 				a.disconnect()
-			case <-a.menu.refresh.ClickedCh:
-				a.refresh()
 			case <-a.menu.mode.doh.ClickedCh:
 				a.changeMode(modeDnsOverHttps)
 			case <-a.menu.mode.warp.ClickedCh:
@@ -156,6 +165,12 @@ func (a *Applet) onReady() {
 				a.changeMode(modeWarpProxy)
 			case <-a.menu.mode.tunnelOnly.ClickedCh:
 				a.changeMode(modeTunnelOnly)
+			case <-a.menu.settings.ShowInApps.ClickedCh:
+				a.toggleShowInApps()
+			case <-a.menu.settings.AutostartAtLogin.ClickedCh:
+				a.toggleAutostartAtLogin()
+			case <-a.menu.refresh.ClickedCh:
+				a.refresh()
 			}
 		}
 	}()
@@ -164,6 +179,13 @@ func (a *Applet) onReady() {
 		<-a.menu.quit.ClickedCh
 		systray.Quit()
 	}()
+
+	if a.launcher.IsLauncherExist() {
+		a.menu.settings.ShowInApps.Check()
+	}
+	if a.launcher.IsAutostartExist() {
+		a.menu.settings.AutostartAtLogin.Check()
+	}
 
 	a.updateModeFromSettings()
 	// On startup, the computer may take a while to connect to Wi-Fi.
@@ -328,6 +350,38 @@ func (a *Applet) showError(msg []byte, err string) {
 	a.menu.status.SetTitle(s)
 }
 
+func (a *Applet) toggleShowInApps() {
+	if a.menu.settings.ShowInApps.Checked() {
+		if err := a.launcher.RemoveLauncher(); err != nil {
+			a.showError([]byte("Disable Show In Apps"), err.Error())
+			return
+		}
+		a.menu.settings.ShowInApps.Uncheck()
+		return
+	}
+	if err := a.launcher.CreateLauncher(); err != nil {
+		a.showError([]byte("Enable Show In Apps"), err.Error())
+		return
+	}
+	a.menu.settings.ShowInApps.Check()
+}
+
+func (a *Applet) toggleAutostartAtLogin() {
+	if a.menu.settings.AutostartAtLogin.Checked() {
+		if err := a.launcher.RemoveAutostartAtLogin(); err != nil {
+			a.showError([]byte("Disable Autostart at Login"), err.Error())
+			return
+		}
+		a.menu.settings.AutostartAtLogin.Uncheck()
+		return
+	}
+	if err := a.launcher.CreateAutostartAtLogin(); err != nil {
+		a.showError([]byte("Enable Autostart at Login"), err.Error())
+		return
+	}
+	a.menu.settings.AutostartAtLogin.Check()
+}
+
 type modeMenu struct {
 	*systray.MenuItem
 	doh         *systray.MenuItem
@@ -384,4 +438,10 @@ func (m *modeMenu) check(mode mode) {
 	case modeTunnelOnly:
 		m.tunnelOnly.Check()
 	}
+}
+
+type settingsMenu struct {
+	*systray.MenuItem
+	ShowInApps       *systray.MenuItem
+	AutostartAtLogin *systray.MenuItem
 }

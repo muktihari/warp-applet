@@ -4,87 +4,56 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 
 	"github.com/muktihari/warp-applet/internal/applet"
-	"github.com/muktihari/warp-applet/internal/icon"
 	"github.com/muktihari/warp-applet/internal/launcher"
 )
 
 func main() {
-	var (
-		createLauncher = flag.Bool("create-launcher", false, "create launcher")
-		autostart      = flag.Bool("autostart", false, "enable autostart on login")
-		cleanup        = flag.Bool("cleanup", false, "remove all files created by applet: launcher, icon, autostart and lock file")
-	)
+	var cleanup = flag.Bool("cleanup", false, "remove all files created by applet: launcher, icon, autostart and lock file")
 	flag.Parse()
 
-	switch {
-	case *createLauncher, *autostart:
-		execPath, err := whichExecutable()
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-		fmt.Printf("Which executable: %q\n", execPath)
-		if *createLauncher {
-			if err := launcher.Create(execPath, icon.Connected); err != nil {
-				fmt.Println(err)
-				return
-			}
-		}
-		if *autostart {
-			if err := launcher.Autostart(execPath); err != nil {
-				fmt.Println(err)
-				return
-			}
-		}
-	case *cleanup:
+	if *cleanup {
 		launcher.Cleanup()
 		applet.ForceUnlock()
-	default:
-		// Launch if no flags specified
-		quitSignal := make(chan os.Signal, 1)
-		signal.Notify(quitSignal, os.Interrupt, syscall.SIGTERM)
-
-		a := applet.New()
-
-		go func() {
-			<-quitSignal
-			a.Quit()
-		}()
-
-		a.Launch()
+		return
 	}
+
+	quitc := make(chan os.Signal, 1)
+	signal.Notify(quitc, os.Interrupt, syscall.SIGTERM)
+
+	execPath, err := whichExecutable()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	l := launcher.New(execPath)
+	a := applet.New(l)
+
+	go func() {
+		<-quitc
+		a.Quit()
+	}()
+
+	a.Launch()
 }
 
-// whichExecutable returns absolute path of warp-applet executable.
-// If not found, it falls back to this executable path instead.
 func whichExecutable() (path string, err error) {
-	var buf strings.Builder
-	cmd := exec.Command("which", "warp-applet")
-	cmd.Stdout = &buf
-	cmd.Stderr = &buf
-
-	if err = cmd.Run(); err != nil {
-		path, err = os.Executable()
-		if err != nil {
-			return "", fmt.Errorf("could not get executable path: %v", err)
-		}
-		path, err = filepath.EvalSymlinks(path)
-		if err != nil {
-			return "", fmt.Errorf("could not eval symbolic link of the executable path: %v", err)
-		}
-		path, err = filepath.Abs(path)
-		if err != nil {
-			return "", fmt.Errorf("could not resolve absolute path of the executable: %v", err)
-		}
-		return path, nil
+	path, err = os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("could not get executable path: %v", err)
 	}
-
-	return strings.TrimRight(buf.String(), "\n"), nil
+	path, err = filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", fmt.Errorf("could not eval symbolic link of the executable path: %v", err)
+	}
+	path, err = filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("could not resolve absolute path of the executable: %v", err)
+	}
+	return path, nil
 }
